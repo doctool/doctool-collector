@@ -7,6 +7,10 @@ $logFile = Join-Path -Path $workingDirectory -ChildPath 'output.log'
 
 [xml]$scriptConfig = Get-Content -Path $configPath
 
+if ($scriptConfig.Configuration.NoProxy) {
+    [System.Net.WebRequest]::DefaultWebProxy = [System.Net.GlobalProxySelection]::GetEmptyWebProxy()
+}
+
 function Log {
     param (
         [string]$message
