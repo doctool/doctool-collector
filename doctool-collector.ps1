@@ -1,5 +1,5 @@
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$currentVersion = '2'
+$currentVersion = '4'
 $scriptPath = $MyInvocation.MyCommand.Path
 $workingDirectory = Split-Path -Path $scriptPath
 $configPath = Join-Path -Path $workingDirectory -ChildPath 'config.xml'
@@ -739,7 +739,7 @@ if ($productType -eq 2 -or $productType -eq 3) {
                             unassigned_ip_count = $freeCount
                             excluded_ip_count   = $excludedIPcount
                             reserved_ip_count   = @($reservationsList).Count
-                            router              = $routerOption
+                            router_ip           = $routerOption
                             dns_servers         = $dnsServersOption
                             dns_domain_name     = $dnsDomainNameOption
                             lease_duration      = $leaseDurationOption
