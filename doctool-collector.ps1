@@ -1,5 +1,5 @@
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$currentVersion = '4'
+$currentVersion = '5'
 $scriptPath = $MyInvocation.MyCommand.Path
 $workingDirectory = Split-Path -Path $scriptPath
 $configPath = Join-Path -Path $workingDirectory -ChildPath 'config.xml'
@@ -142,7 +142,7 @@ function New-ApiCall {
     }
 
     if ($null -ne $Body) {
-        $jsonBody = $Body | ConvertTo-Json -Compress
+        $jsonBody = $Body | ConvertTo-Json -Compress -Depth 5
         $headers['Content-Type'] = 'application/json'
     }
     
@@ -156,21 +156,36 @@ function New-ApiCall {
         if ($_.Exception.InnerException) {
             Log "Inner exception: $($_.Exception.InnerException.Message)"
         }
-        try {
-            Log "Invoke-RestMethod failed. Attempting Invoke-WebRequest..."
-            $webResponse = Invoke-WebRequest -Uri $url -Method $Method -Headers $Headers -Body $jsonBody -ContentType 'application/json'
-            Log "Fallback to Invoke-WebRequest succeeded. Status code: $($webResponse.StatusCode)"
-        }
-        catch {
-            if ($_.Exception -and $_.Exception.Response -and $_.Exception.Response.StatusCode) {
-                $statusCode = $_.Exception.Response.StatusCode.value__
-                $statusDescription = $_.Exception.Response.StatusDescription
-                Log "Invoke-WebRequest failed with status code ${statusCode}: ${statusDescription}"
+        if ($_.Exception.Response -and $_.Exception.Response.StatusCode -eq 422) {
+            try {
+                # Capture the raw response content and parse the JSON
+                $errorResponse = $_.Exception.Response.GetResponseStream() | % { [System.IO.StreamReader]::new($_).ReadToEnd() }
+                $parsedError = $errorResponse | ConvertFrom-Json
+    
+                # Output the error message
+                Log "HTTP 422 Error Message: $($parsedError.message)"
             }
-            else {
-                Log "Invoke-WebRequest failed. Error: $($_.Exception.Message)"
-                if ($_.Exception.InnerException) {
-                    Log "Inner exception: $($_.Exception.InnerException.Message)"
+            catch {
+                Log "Failed to capture the raw response. Error: $($_.Exception.Message)"
+            }
+        }
+        else {
+            try {
+                Log "Invoke-RestMethod failed. Attempting Invoke-WebRequest..."
+                $webResponse = Invoke-WebRequest -Uri $url -Method $Method -Headers $Headers -Body $jsonBody -ContentType 'application/json'
+                Log "Fallback to Invoke-WebRequest succeeded. Status code: $($webResponse.StatusCode)"
+            }
+            catch {
+                if ($_.Exception -and $_.Exception.Response -and $_.Exception.Response.StatusCode) {
+                    $statusCode = $_.Exception.Response.StatusCode.value__
+                    $statusDescription = $_.Exception.Response.StatusDescription
+                    Log "Invoke-WebRequest failed with status code ${statusCode}: ${statusDescription}"
+                }
+                else {
+                    Log "Invoke-WebRequest failed. Error: $($_.Exception.Message)"
+                    if ($_.Exception.InnerException) {
+                        Log "Inner exception: $($_.Exception.InnerException.Message)"
+                    }
                 }
             }
         }
@@ -458,7 +473,13 @@ if ($productType -eq 2 -or $productType -eq 3) {
     $biosSerialNumber = (Get-CimInstance -ClassName Win32_BIOS).SerialNumber
     $osVersion = Get-CimInstance -ClassName Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber, OSArchitecture
     $osUuid = (Get-CimInstance -ClassName Win32_ComputerSystemProduct).UUID
-    $cpu = (Get-CimInstance -ClassName Win32_Processor).Name
+    $cpuSockets = (Get-CimInstance -ClassName Win32_ComputerSystem).NumberOfProcessors
+    if ($cpuSockets -eq 1) {
+        $cpu = (Get-CimInstance -ClassName Win32_Processor).Name
+    }
+    else {
+        $cpu = "2x " + (Get-CimInstance -ClassName Win32_Processor).Name
+    }
     $totalCores = (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum
     $totalMemory = (Get-CimInstance -ClassName Win32_ComputerSystem).TotalPhysicalMemory
     $manufacturer = (Get-CimInstance -ClassName Win32_ComputerSystem).Manufacturer
@@ -469,6 +490,8 @@ if ($productType -eq 2 -or $productType -eq 3) {
 
     $fixedDisks = Get-Volume | Where-Object { ($_.DriveLetter -ne $null) -and ($_.DriveType -eq 'Fixed') }
     $shadowCopies = Get-CimInstance -ClassName Win32_ShadowCopy
+
+    $lastBootTime = (Get-CimInstance -ClassName Win32_OperatingSystem).LastBootUpTime
 
     $fixedDisksInfo = foreach ($disk in $fixedDisks) {
         # Check if there's a shadow copy for the volume by matching VolumeName with Path
@@ -540,7 +563,7 @@ if ($productType -eq 2 -or $productType -eq 3) {
     }
 
     # If the server is a primary domain controller
-    if ((Get-WmiObject -Class Win32_ComputerSystem).DomainRole -eq 5) {
+    if ((Get-CimInstance -ClassName Win32_ComputerSystem).DomainRole -eq 5) {
         $adDomainName = (Get-ADDomain).DNSRoot
         $netBIOSDomainName = (Get-ADDomain).NetBIOSName
     
@@ -618,7 +641,7 @@ if ($productType -eq 2 -or $productType -eq 3) {
         $jsonContent = $activeDirectoryInfo | ConvertTo-Json -Depth 5 -Compress
         $jsonContent | Out-File -FilePath $adOutPath
 
-        $localNetwork = Get-WmiObject Win32_NetworkAdapterConfiguration | Where-Object { $_.IPAddress -ne $null -and $_.IPEnabled -eq $true }
+        $localNetwork = Get-CimInstance -ClassName Win32_NetworkAdapterConfiguration | Where-Object { $_.IPAddress -ne $null -and $_.IPEnabled -eq $true }
         $localIP = $localNetwork.IPAddress[0]
         $subnetMask = $localNetwork.IPSubnet[0]
         $networkRange = Get-NetworkRange -ipAddress $localIP -subnetMask $subnetMask
@@ -717,8 +740,19 @@ if ($productType -eq 2 -or $productType -eq 3) {
                 $inUseCount = $leases.Count
                 $freeCount = $totalIPs - $inUseCount - $excludedIPcount
                 $routerOption = (Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 3).Value[0]
-                $dnsServersOption = (Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 6).Value
-                $dnsDomainNameOption = (Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 15).Value[0]
+                try {
+                    $dnsServersOption = (Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 6).Value
+                }
+                catch {
+                    Write-Host "Option 6 (DNS Servers) not set or could not be retrieved."
+                }
+                $dnsDomainNameOption = $null
+                try {
+                    $dnsDomainNameOption = (Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 15).Value[0]
+                }
+                catch {
+                    Write-Host "Option 15 (DNS Domain Name) not set or could not be retrieved."
+                }
                 $leaseDurationOption = (Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 51).Value[0]
                 
                 $reservationsList = $reservations | Select-Object @{Name = 'ip_address'; Expression = { $_.IPAddress.IPAddressToString } }, @{Name = 'mac_address'; Expression = { $_.ClientId } }
@@ -740,7 +774,7 @@ if ($productType -eq 2 -or $productType -eq 3) {
                             excluded_ip_count   = $excludedIPcount
                             reserved_ip_count   = @($reservationsList).Count
                             router_ip           = $routerOption
-                            dns_servers         = $dnsServersOption
+                            dns_servers         = @($dnsServersOption)
                             dns_domain_name     = $dnsDomainNameOption
                             lease_duration      = $leaseDurationOption
                         }
@@ -778,6 +812,7 @@ if ($productType -eq 2 -or $productType -eq 3) {
         cpu              = $cpu
         cpu_cores        = $totalCores
         network_adapters = $networkInfo
+        last_boot        = $lastBootTime
     }
 
     New-ApiCall -Endpoint 'server' -Method 'put' -Body $serverInformation
