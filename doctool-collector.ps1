@@ -1,5 +1,5 @@
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$currentVersion = '5'
+$currentVersion = '6'
 $scriptPath = $MyInvocation.MyCommand.Path
 $workingDirectory = Split-Path -Path $scriptPath
 $configPath = Join-Path -Path $workingDirectory -ChildPath 'config.xml'
@@ -727,8 +727,8 @@ if ($productType -eq 2 -or $productType -eq 3) {
                 foreach ($exclusion in $exclusions) {
                     $startIP = [System.Net.IPAddress]::Parse($exclusion.StartRange)
                     $endIP = [System.Net.IPAddress]::Parse($exclusion.EndRange)
-                    $startIPInt = [BitConverter]::ToUInt32($startIP.GetAddressBytes(), 0)
-                    $endIPInt = [BitConverter]::ToUInt32($endIP.GetAddressBytes(), 0)
+                    $startIPInt = Convert-IPToInt $startIP
+                    $endIPInt = Convert-IPToInt $endIP
                     $excludedIPcount += ($endIPInt - $startIPInt + 1)  # +1 to include the start and end IP
                 }
 
@@ -740,6 +740,7 @@ if ($productType -eq 2 -or $productType -eq 3) {
                 $inUseCount = $leases.Count
                 $freeCount = $totalIPs - $inUseCount - $excludedIPcount
                 $routerOption = (Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 3).Value[0]
+                $dnsServersOption = @()
                 try {
                     $dnsServersOption = (Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 6).Value
                 }
