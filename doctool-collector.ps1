@@ -1,5 +1,5 @@
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$currentVersion = '6'
+$currentVersion = '7'
 $scriptPath = $MyInvocation.MyCommand.Path
 $workingDirectory = Split-Path -Path $scriptPath
 $configPath = Join-Path -Path $workingDirectory -ChildPath 'config.xml'
@@ -745,14 +745,26 @@ if ($productType -eq 2 -or $productType -eq 3) {
                     $dnsServersOption = (Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 6).Value
                 }
                 catch {
-                    Write-Host "Option 6 (DNS Servers) not set or could not be retrieved."
+                                    
+                    try {
+                        $dnsServersOption = (Get-DhcpServerv4OptionValue -OptionId 6).Value
+                    }
+                    catch {
+                        Write-Host "Option 6 (DNS Servers) not set or could not be retrieved."
+                    }
                 }
                 $dnsDomainNameOption = $null
+
                 try {
                     $dnsDomainNameOption = (Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 15).Value[0]
                 }
                 catch {
-                    Write-Host "Option 15 (DNS Domain Name) not set or could not be retrieved."
+                    try {
+                        $dnsDomainNameOption = (Get-DhcpServerv4OptionValue -OptionId 15).Value[0]
+                    }
+                    catch {
+                        Write-Host "Option 15 (DNS Domain Name) not set or could not be retrieved."
+                    }
                 }
                 $leaseDurationOption = (Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 51).Value[0]
                 
