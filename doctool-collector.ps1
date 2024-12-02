@@ -1,5 +1,5 @@
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$currentVersion = '7'
+$currentVersion = '8'
 $scriptPath = $MyInvocation.MyCommand.Path
 $workingDirectory = Split-Path -Path $scriptPath
 $configPath = Join-Path -Path $workingDirectory -ChildPath 'config.xml'
@@ -742,32 +742,61 @@ if ($productType -eq 2 -or $productType -eq 3) {
                 $routerOption = (Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 3).Value[0]
                 $dnsServersOption = @()
                 try {
-                    $dnsServersOption = (Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 6).Value
+                    $dhcpOption = Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 6 -ErrorAction Stop
                 }
                 catch {
-                                    
-                    try {
-                        $dnsServersOption = (Get-DhcpServerv4OptionValue -OptionId 6).Value
-                    }
-                    catch {
-                        Write-Host "Option 6 (DNS Servers) not set or could not be retrieved."
-                    }
+                    Log "Option 6 (DNS Servers) not set or could not be retrieved for scope. Error: $($_.Exception.Message)"
                 }
-                $dnsDomainNameOption = $null
 
-                try {
-                    $dnsDomainNameOption = (Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 15).Value[0]
+                if ($null -ne $dhcpOption -and $null -ne $dhcpOption.Value) {
+                    $dnsServersOption = $dhcpOption.Value
                 }
-                catch {
+                else {
                     try {
-                        $dnsDomainNameOption = (Get-DhcpServerv4OptionValue -OptionId 15).Value[0]
+                        $dhcpOptionGlobal = Get-DhcpServerv4OptionValue -OptionId 6 -ErrorAction Stop
                     }
                     catch {
-                        Write-Host "Option 15 (DNS Domain Name) not set or could not be retrieved."
+                        Log "Option 6 (DNS Servers) not set or could not be retrieved globally. Error: $($_.Exception.Message)"
+                    }
+
+                    if ($null -ne $dhcpOptionGlobal -and $null -ne $dhcpOptionGlobal.Value) {
+                        $dnsServersOption = $dhcpOptionGlobal.Value
+                    }
+                    else {
+                        Log "Global DNS Server option is also null or not found."
                     }
                 }
+
+                $dnsDomainNameOption = $null
+                try {
+                    $dhcpOption = Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 15 -ErrorAction Stop
+                }
+                catch {
+                    Write-Host "Option 15 (DNS Domain Name) not set or could not be retrieved for scope. Error: $($_.Exception.Message)"
+                }
+
+                if ($null -ne $dhcpOption -and $null -ne $dhcpOption.Value -and $null -ne $dhcpOption.Value[0]) {
+                    $dnsDomainNameOption = $dhcpOption.Value[0]
+                }
+                else {
+                    Log "Scope-specific DNS Domain Name option is null or not found. Attempting global option retrieval..."
+
+                    try {
+                        $dhcpOptionGlobal = Get-DhcpServerv4OptionValue -OptionId 15 -ErrorAction Stop
+                    }
+                    catch {
+                        Log "Option 15 (DNS Domain Name) not set or could not be retrieved globally. Error: $($_.Exception.Message)"
+                    }
+
+                    if ($null -ne $dhcpOptionGlobal -and $null -ne $dhcpOptionGlobal.Value -and $null -ne $dhcpOptionGlobal.Value[0]) {
+                        $dnsDomainNameOption = $dhcpOptionGlobal.Value[0]
+                    }
+                    else {
+                        Log "Global DNS Domain Name option is also null or not found."
+                    }
+                }
+
                 $leaseDurationOption = (Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 51).Value[0]
-                
                 $reservationsList = $reservations | Select-Object @{Name = 'ip_address'; Expression = { $_.IPAddress.IPAddressToString } }, @{Name = 'mac_address'; Expression = { $_.ClientId } }
                 $networkAddress = Get-NetworkAddress -IPAddress $dhcpScope.StartRange -SubnetMask $subnetMask
                 $cidr = Convert-SubnetMaskToCIDR -subnetMask $subnetMask
