@@ -1,5 +1,5 @@
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$currentVersion = '8'
+$currentVersion = '9'
 $scriptPath = $MyInvocation.MyCommand.Path
 $workingDirectory = Split-Path -Path $scriptPath
 $configPath = Join-Path -Path $workingDirectory -ChildPath 'config.xml'
@@ -740,6 +740,17 @@ if ($productType -eq 2 -or $productType -eq 3) {
                 $inUseCount = $leases.Count
                 $freeCount = $totalIPs - $inUseCount - $excludedIPcount
                 $routerOption = (Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 3).Value[0]
+                foreach ($result in $networkScanResults) {
+                    if ($result.ip_address -eq $routerOption) {
+                        $routerMac = $result.mac_address
+                        $routerInfo = [pscustomobject]@{
+                            ip          = $routerOption
+                            mac_address = $routerMac
+                        }
+                        break
+                    }
+                }
+                
                 $dnsServersOption = @()
                 try {
                     $dhcpOption = Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 6 -ErrorAction Stop
@@ -815,7 +826,7 @@ if ($productType -eq 2 -or $productType -eq 3) {
                             unassigned_ip_count = $freeCount
                             excluded_ip_count   = $excludedIPcount
                             reserved_ip_count   = @($reservationsList).Count
-                            router_ip           = $routerOption
+                            router              = $routerInfo
                             dns_servers         = @($dnsServersOption)
                             dns_domain_name     = $dnsDomainNameOption
                             lease_duration      = $leaseDurationOption
