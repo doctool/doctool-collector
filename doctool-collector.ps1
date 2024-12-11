@@ -1,5 +1,5 @@
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$currentVersion = '9'
+$currentVersion = [double]'9.1'
 $scriptPath = $MyInvocation.MyCommand.Path
 $workingDirectory = Split-Path -Path $scriptPath
 $configPath = Join-Path -Path $workingDirectory -ChildPath 'config.xml'
@@ -71,7 +71,7 @@ function Update-Script {
 
             $latestVersion = $release.tag_name.Trim()
             if ($latestVersion.StartsWith('v')) {
-                $latestVersion = $latestVersion.Substring(1)
+                $latestVersion = [double]$latestVersion.Substring(1)
             }
 
             Log "Latest script version: $latestVersion"
@@ -739,7 +739,33 @@ if ($productType -eq 2 -or $productType -eq 3) {
                 $totalIPs = $endIPInt - $startIPInt + 1
                 $inUseCount = $leases.Count
                 $freeCount = $totalIPs - $inUseCount - $excludedIPcount
-                $routerOption = (Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 3).Value[0]
+                
+                try {
+                $routerOption = Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 3 -ErrorAction Stop
+                }
+                catch {
+                    Log "Option 3 (Router) not set or could not be retrieved for scope. Error: $($_.Exception.Message)"
+                }
+
+                if ($null -ne $routerOption -and $null -ne $routerOption.Value) {
+                    $routerOption = $routerOption.Value
+                }
+                else {
+                    try {
+                        $routerOption = Get-DhcpServerv4OptionValue -OptionId 3 -ErrorAction Stop
+                    }
+                    catch {
+                        Log "Option 3 (Router) not set or could not be retrieved globally. Error: $($_.Exception.Message)"
+                    }
+
+                    if ($null -ne $routerOption -and $null -ne $routerOption.Value) {
+                        $routerOption = $routerOption.Value
+                    }
+                    else {
+                        Log "Global Router option is also null or not found."
+                    }
+                }
+
                 foreach ($result in $networkScanResults) {
                     if ($result.ip_address -eq $routerOption) {
                         $routerMac = $result.mac_address
