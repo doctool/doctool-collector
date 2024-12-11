@@ -1,5 +1,5 @@
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$currentVersion = [double]'9.1'
+$currentVersion = [double]'10'
 $scriptPath = $MyInvocation.MyCommand.Path
 $workingDirectory = Split-Path -Path $scriptPath
 $configPath = Join-Path -Path $workingDirectory -ChildPath 'config.xml'
@@ -748,7 +748,7 @@ if ($productType -eq 2 -or $productType -eq 3) {
                 }
 
                 if ($null -ne $routerOption -and $null -ne $routerOption.Value) {
-                    $routerOption = $routerOption.Value
+                    $routerOption = $routerOption.Value[0]
                 }
                 else {
                     try {
@@ -759,7 +759,7 @@ if ($productType -eq 2 -or $productType -eq 3) {
                     }
 
                     if ($null -ne $routerOption -and $null -ne $routerOption.Value) {
-                        $routerOption = $routerOption.Value
+                        $routerOption = $routerOption.Value[0]
                     }
                     else {
                         Log "Global Router option is also null or not found."
