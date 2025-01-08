@@ -1,9 +1,10 @@
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$currentVersion = [double]'10'
+$currentVersion = [double]'11'
 $scriptPath = $MyInvocation.MyCommand.Path
 $workingDirectory = Split-Path -Path $scriptPath
 $configPath = Join-Path -Path $workingDirectory -ChildPath 'config.xml'
 $logFile = Join-Path -Path $workingDirectory -ChildPath 'output.log'
+$logFileContent = Get-Content -Path $logFile
 
 [xml]$scriptConfig = Get-Content -Path $configPath
 
@@ -16,7 +17,7 @@ function Log {
         [string]$message
     )
     $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    "$timestamp - $message" | Out-File -Append -FilePath $logFile
+    "$timestamp - $message" | Add-Content -Path $logFile
 }
 
 function Backup-CurrentScript {
@@ -463,6 +464,12 @@ function Get-HttpTitle {
 
 Update-Script
 
+if($logFileContent.Count -gt 10000) {
+    $lines = $logFileContent | Select-Object -Last 10000
+    $lines | Set-Content -Path $logFile
+    Log "Log file trimmed to 10000 lines."
+}
+
 $productType = (Get-CimInstance -ClassName Win32_OperatingSystem).ProductType
 
 # if the product is a server
@@ -683,8 +690,26 @@ if ($productType -eq 2 -or $productType -eq 3) {
                 if ($pingResult) {
                     $reachableIPs += $ip
                     $activeCount++
-                    $neighbor = Get-NetNeighbor -IPAddress $ipAddress
-                    $macAddress = if ($neighbor) { $neighbor.LinkLayerAddress } else { "Unknown" }
+
+                    if ($ipAddress -eq $localIP) {
+                        $macAddress = $localNetwork.MACAddress
+                    }
+                    else {
+                        $neighbor = Get-NetNeighbor -IPAddress $ipAddress
+                        if ($neighbor.LinkLayerAddress -is [Array]) {
+                            
+                            $validMac = $neighbor.LinkLayerAddress | Where-Object { $_ -ne "" -and $_ -ne "00-00-00-00-00-00" } | Select-Object -First 1
+                            if ($validMac) {
+                                $macAddress = $validMac
+                            }
+                            else {
+                                $macAddress = "Unknown"
+                            }
+                        }
+                        else {
+                            $macAddress = if ($neighbor) { $neighbor.LinkLayerAddress } else { "Unknown" }
+                        }
+                    }
                     $scanHostname = Get-Hostname -ipAddress $ipAddress
                     $ports = @()
                     $httpPortInfo = Get-HttpTitle -ipAddress $ipAddress
@@ -741,7 +766,7 @@ if ($productType -eq 2 -or $productType -eq 3) {
                 $freeCount = $totalIPs - $inUseCount - $excludedIPcount
                 
                 try {
-                $routerOption = Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 3 -ErrorAction Stop
+                    $routerOption = Get-DhcpServerv4OptionValue -ScopeId $networkAddress -OptionId 3 -ErrorAction Stop
                 }
                 catch {
                     Log "Option 3 (Router) not set or could not be retrieved for scope. Error: $($_.Exception.Message)"
