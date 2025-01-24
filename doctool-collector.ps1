@@ -1,5 +1,5 @@
+$currentVersion = [double]'12'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$currentVersion = [double]'11'
 $scriptPath = $MyInvocation.MyCommand.Path
 $workingDirectory = Split-Path -Path $scriptPath
 $configPath = Join-Path -Path $workingDirectory -ChildPath 'config.xml'
@@ -462,6 +462,16 @@ function Get-HttpTitle {
     }
 }
 
+function Test-UUID {
+    param (
+        [string]$UUID
+    )
+
+    $uuidRegex = '^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[1-5][a-fA-F0-9]{3}-[89abAB][a-fA-F0-9]{3}-[a-fA-F0-9]{12}$'
+
+    return $UUID -match $uuidRegex
+}
+
 Update-Script
 
 if($logFileContent.Count -gt 10000) {
@@ -479,7 +489,12 @@ if ($productType -eq 2 -or $productType -eq 3) {
     $fullHostname = [System.Net.Dns]::GetHostByName($env:COMPUTERNAME).HostName
     $biosSerialNumber = (Get-CimInstance -ClassName Win32_BIOS).SerialNumber
     $osVersion = Get-CimInstance -ClassName Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber, OSArchitecture
-    $osUuid = (Get-CimInstance -ClassName Win32_ComputerSystemProduct).UUID
+    if (($scriptConfig.Configuration.DeviceUuid) -and (Test-UUID($scriptConfig.Configuration.DeviceUuid))) {
+        $osUuid = $scriptConfig.Configuration.DeviceUuid
+    }
+    else {
+        $osUuid = (Get-CimInstance -ClassName Win32_ComputerSystemProduct).UUID
+    }
     $cpuSockets = (Get-CimInstance -ClassName Win32_ComputerSystem).NumberOfProcessors
     if ($cpuSockets -eq 1) {
         $cpu = (Get-CimInstance -ClassName Win32_Processor).Name
@@ -893,7 +908,7 @@ if ($productType -eq 2 -or $productType -eq 3) {
                 
             }
             catch {
-                Log "Failed to retrieve DHCP information. Error: $_"
+                Log "Failed to retrieve DHCP information. Error: $_ at line $($_.InvocationInfo.ScriptLineNumber)"
             }
         }
     
